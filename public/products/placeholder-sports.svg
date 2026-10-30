@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5F8FB"/>
+      <stop offset="1" stop-color="#E6ECF3"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <g transform="translate(200 200)">
+    <circle cx="0" cy="0" r="90" fill="#F59E0B" stroke="#92400E" stroke-width="3"/>
+    <path d="M 0,-90 L 0,90 M -90,0 L 90,0" stroke="#FFFFFF" stroke-width="2" opacity="0.5"/>
+    <path d="M 0,-90 A 90,90 0 0 1 64,-64 L 0,0 Z" fill="#FFFFFF" opacity="0.18"/>
+  </g>
+  <text x="20" y="380" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#92400E" font-weight="600" letter-spacing="2">SPORTS</text>
+</svg>

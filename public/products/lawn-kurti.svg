@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5F8FB"/>
+      <stop offset="1" stop-color="#E6ECF3"/>
+    </linearGradient>
+    <linearGradient id="fabric" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3B82C4"/>
+      <stop offset="1" stop-color="#1E4F8C"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <g transform="translate(200 210)">
+    <path d="M -90,-120 C -60,-140 -30,-145 0,-145 C 30,-145 60,-140 90,-120 L 110,-90 L 80,-50 L 65,-58 L 65,135 L -65,135 L -65,-58 L -80,-50 L -110,-90 Z"
+          fill="url(#fabric)" stroke="#163868" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M -22,-138 Q 0,-118 22,-138" fill="none" stroke="#163868" stroke-width="2.5"/>
+    <path d="M -25,30 Q 0,38 25,30" fill="none" stroke="#163868" stroke-width="1.5" opacity="0.6"/>
+    <path d="M -28,60 Q 0,70 28,60" fill="none" stroke="#163868" stroke-width="1.5" opacity="0.5"/>
+    <path d="M -30,90 Q 0,98 30,90" fill="none" stroke="#163868" stroke-width="1.5" opacity="0.4"/>
+    <g opacity="0.6" fill="#FFFFFF">
+      <circle cx="-30" cy="-30" r="2"/>
+      <circle cx="-10" cy="-50" r="1.5"/>
+      <circle cx="15" cy="-25" r="1.8"/>
+      <circle cx="25" cy="10" r="1.4"/>
+      <circle cx="-20" cy="20" r="1.6"/>
+    </g>
+  </g>
+  <text x="20" y="380" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A6B82" font-weight="600" letter-spacing="2">LAWN KURTI</text>
+</svg>

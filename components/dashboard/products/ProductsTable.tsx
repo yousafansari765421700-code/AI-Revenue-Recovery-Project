@@ -1,11 +1,13 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { format } from "date-fns";
-import { Eye, Edit, Trash2, Package } from "lucide-react";
+import { Eye, Edit, Trash2, ImageOff } from "lucide-react";
 import type { Product } from "@/lib/data/products/client";
+import { getProductImage } from "@/lib/data/products/image";
 
 interface ProductsTableProps {
   products: Product[];
@@ -19,6 +21,33 @@ const statusVariant: Record<string, "success" | "warning" | "danger" | "neutral"
   inactive: "neutral",
   out_of_stock: "danger",
 };
+
+function ProductImage({ product }: { product: Product }) {
+  const [imgError, setImgError] = useState(false);
+  const src = getProductImage(product);
+  const showFallback = !src || imgError;
+
+  const handleError = useCallback(() => {
+    setImgError(true);
+  }, []);
+
+  if (showFallback) {
+    return (
+      <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center text-primary flex-shrink-0">
+        <ImageOff className="w-5 h-5" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={product.name}
+      className="w-10 h-10 rounded-xl object-cover flex-shrink-0"
+      onError={handleError}
+    />
+  );
+}
 
 export default function ProductsTable({ products, onView, onEdit, onDelete }: ProductsTableProps) {
   const formatCurrency = (value: number) => {
@@ -63,13 +92,7 @@ export default function ProductsTable({ products, onView, onEdit, onDelete }: Pr
                 <tr key={product.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      {product.image_url ? (
-                        <img src={product.image_url} alt={product.name} className="w-10 h-10 rounded-xl object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl bg-primary-light flex items-center justify-center text-primary">
-                          <Package className="w-5 h-5" />
-                        </div>
-                      )}
+                      <ProductImage product={product} />
                       <div>
                         <p className="text-sm font-medium text-dark">{product.name}</p>
                       </div>

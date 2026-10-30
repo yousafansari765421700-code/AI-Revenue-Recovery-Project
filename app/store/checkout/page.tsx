@@ -9,12 +9,14 @@ import { useToast } from "@/components/ui/toast/Toast";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { createOrder } from "@/lib/data/orders/client";
-import { getStoreProducts } from "@/lib/data/store/client";
+import { createClient } from "@/lib/supabase/browser";
+import { ShoppingBag, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 export default function CheckoutPage() {
   const router = useRouter();
   const { addToast } = useToast();
-  const { items, totalAmount, clearCart } = useCart();
+  const { items, totalAmount, clearCart, mounted } = useCart();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -24,6 +26,7 @@ export default function CheckoutPage() {
     phone: "",
     address: "",
     city: "",
+    postal_code: "",
     country: "",
   });
 
@@ -36,6 +39,7 @@ export default function CheckoutPage() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.customer_email)) newErrors.customer_email = "Invalid email format";
     if (!formData.address.trim()) newErrors.address = "Address is required";
     if (!formData.city.trim()) newErrors.city = "City is required";
+    if (!formData.postal_code.trim()) newErrors.postal_code = "Postal code is required";
     if (!formData.country.trim()) newErrors.country = "Country is required";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -48,18 +52,44 @@ export default function CheckoutPage() {
       addToast("error", "Your cart is empty");
       return;
     }
+    if (!user) {
+      addToast("error", "You must be logged in to place an order");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-      const userId = user?.id || "public";
+      const supabase = createClient();
+      for (const item of items) {
+        const { data: product, error: stockErr } = await supabase
+          .from("products")
+          .select("id, name, stock_quantity, status")
+          .eq("id", item.product_id)
+          .maybeSingle();
 
-      const order = await createOrder(userId, {
+        if (stockErr || !product) {
+          addToast("error", `${item.name} is no longer available.`);
+          setIsSubmitting(false);
+          return;
+        }
+        if (Number(product.stock_quantity) < item.quantity) {
+          addToast(
+            "error",
+            `Only ${product.stock_quantity} of "${product.name}" available. Please reduce the quantity.`
+          );
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      const order = await createOrder(user.id, {
         order_number: orderNumber,
         total_amount: totalAmount,
         customer_name: formData.customer_name,
         customer_email: formData.customer_email,
-        shipping_address: `${formData.address}, ${formData.city}, ${formData.country}`,
+        shipping_address: `${formData.address}, ${formData.city}, ${formData.postal_code}, ${formData.country}`,
         items: items.map((item) => ({
           product_id: item.product_id,
           product_name: item.name,
@@ -72,17 +102,52 @@ export default function CheckoutPage() {
       clearCart();
       addToast("success", "Order placed successfully!");
       router.push(`/store/order-success?orderNumber=${order.order_number}`);
-    } catch (error) {
-      console.error("Failed to create order:", error);
-      addToast("error", "Failed to place order. Please try again.");
+    } catch (error: any) {
+      console.error("ORDER_PLACE_ERROR", error);
+      addToast("error", error?.message || "Failed to place order. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (!mounted) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold text-dark">Checkout</h1>
+        <Card padding="lg">
+          <div className="text-center py-12">
+            <p className="text-muted text-lg">Loading checkout...</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold text-dark">Checkout</h1>
+        <Card padding="lg">
+          <div className="text-center py-12">
+            <ShoppingBag className="w-16 h-16 text-muted mx-auto mb-4" />
+            <p className="text-muted text-lg mb-4">Your cart is empty</p>
+            <Link href="/store/products">
+              <Button>Continue Shopping</Button>
+            </Link>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold text-dark">Checkout</h1>
+      <div className="flex items-center gap-3">
+        <Link href="/store/cart" className="p-2 rounded-lg hover:bg-gray-100">
+          <ArrowLeft className="w-5 h-5 text-muted" />
+        </Link>
+        <h1 className="text-3xl font-bold text-dark">Checkout</h1>
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2">
           <Card padding="lg">
@@ -114,7 +179,7 @@ export default function CheckoutPage() {
               </div>
 
               <div>
-                <h3 className="text-lg font-semibold text-dark mb-4">Billing Information</h3>
+                <h3 className="text-lg font-semibold text-dark mb-4">Shipping Information</h3>
                 <div className="space-y-4">
                   <Input
                     label="Address"
@@ -123,12 +188,19 @@ export default function CheckoutPage() {
                     error={errors.address}
                     required
                   />
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Input
                       label="City"
                       value={formData.city}
                       onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                       error={errors.city}
+                      required
+                    />
+                    <Input
+                      label="Postal Code"
+                      value={formData.postal_code}
+                      onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+                      error={errors.postal_code}
                       required
                     />
                     <Input

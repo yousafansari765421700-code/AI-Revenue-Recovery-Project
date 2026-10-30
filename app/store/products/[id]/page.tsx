@@ -3,20 +3,31 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { format } from "date-fns";
-import { ShoppingCart, Package, Tag, Hash, FileText, Calendar, ChevronLeft } from "lucide-react";
+import { ShoppingCart, Package, Tag, Hash, FileText, Calendar, ChevronLeft, ImageOff } from "lucide-react";
 import { getStoreProductById, getRelatedProducts } from "@/lib/data/store/server";
 import ProductCard from "@/components/store/ProductCard";
+import AddToCartButton from "@/components/store/AddToCartButton";
+import { getProductImage } from "@/lib/data/products/image";
+import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProductDetailPage({ params }: { params: { id: string } }) {
-  const product = await getStoreProductById(params.id);
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    notFound();
+  }
+
+  const product = await getStoreProductById(user.id, params.id);
 
   if (!product) {
     notFound();
   }
 
-  const relatedProducts = await getRelatedProducts(product.category, product.id);
+  const relatedProducts = await getRelatedProducts(user.id, product.category, product.id);
+  const imageUrl = getProductImage(product);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -38,11 +49,11 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white rounded-2xl border border-border p-8 flex items-center justify-center">
-          {product.image_url ? (
-            <img src={product.image_url} alt={product.name} className="w-full h-64 object-contain rounded-xl" />
+          {imageUrl ? (
+            <img src={imageUrl} alt={product.name} className="w-full h-64 object-contain rounded-xl" />
           ) : (
             <div className="w-64 h-64 rounded-xl bg-primary-light flex items-center justify-center text-primary">
-              <Package className="w-24 h-24" />
+              <ImageOff className="w-24 h-24" />
             </div>
           )}
         </div>
@@ -79,10 +90,7 @@ export default async function ProductDetailPage({ params }: { params: { id: stri
           </div>
 
           <div className="flex items-center gap-4">
-            <Button size="lg" disabled={isOutOfStock} className="flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5" />
-              {isOutOfStock ? "Out of Stock" : "Add to Cart"}
-            </Button>
+            <AddToCartButton product={product} />
           </div>
 
           <div className="text-sm text-muted">

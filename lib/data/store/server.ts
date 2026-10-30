@@ -21,7 +21,7 @@ export interface ProductDetail extends Product {
   invoice_count?: number;
 }
 
-export async function getStoreProducts(filters: {
+export async function getStoreProducts(userId: string, filters: {
   search?: string;
   category?: string;
   status?: string;
@@ -32,6 +32,7 @@ export async function getStoreProducts(filters: {
   let query = supabase
     .from("products")
     .select("*")
+    .eq("user_id", userId)
     .eq("status", "active")
     .order("created_at", { ascending: false });
 
@@ -73,13 +74,14 @@ export async function getStoreProducts(filters: {
   }));
 }
 
-export async function getStoreProductById(id: string): Promise<ProductDetail | null> {
+export async function getStoreProductById(userId: string, id: string): Promise<ProductDetail | null> {
   const supabase = await createClient();
 
   const { data: product } = await supabase
     .from("products")
     .select("*")
     .eq("id", id)
+    .eq("user_id", userId)
     .eq("status", "active")
     .single();
 
@@ -103,12 +105,13 @@ export async function getStoreProductById(id: string): Promise<ProductDetail | n
   };
 }
 
-export async function getRelatedProducts(category: string, excludeProductId: string): Promise<Product[]> {
+export async function getRelatedProducts(userId: string, category: string, excludeProductId: string): Promise<Product[]> {
   const supabase = await createClient();
 
   const { data } = await supabase
     .from("products")
     .select("*")
+    .eq("user_id", userId)
     .eq("status", "active")
     .eq("category", category)
     .neq("id", excludeProductId)
@@ -134,12 +137,13 @@ export async function getRelatedProducts(category: string, excludeProductId: str
   }));
 }
 
-export async function getStoreCategories(): Promise<string[]> {
+export async function getStoreCategories(userId: string): Promise<string[]> {
   const supabase = await createClient();
 
   const { data } = await supabase
     .from("products")
     .select("category")
+    .eq("user_id", userId)
     .eq("status", "active");
 
   if (!data) return [];

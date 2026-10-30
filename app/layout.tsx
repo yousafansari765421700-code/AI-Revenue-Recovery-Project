@@ -38,9 +38,11 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col font-sans">
         <AuthProvider>
-          <ToastProvider>
-            {children}
-          </ToastProvider>
+          <CartProvider>
+            <ToastProvider>
+              {children}
+            </ToastProvider>
+          </CartProvider>
         </AuthProvider>
       </body>
     </html>

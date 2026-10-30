@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface CartItem {
   product_id: string;
@@ -20,33 +21,65 @@ interface CartContextType {
   clearCart: () => void;
   totalItems: number;
   totalAmount: number;
+  mounted: boolean;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+const GUEST_KEY = "store-cart";
+
+function storageKeyFor(userId: string | undefined): string {
+  return userId ? `store-cart:${userId}` : GUEST_KEY;
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const { user } = useAuth();
+  const loadedForUserRef = useRef<string | null>(null);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("cart");
-      if (stored) {
-        setItems(JSON.parse(stored));
+    if (typeof window === "undefined") return;
+
+    const currentKey = storageKeyFor(user?.id);
+
+    if (loadedForUserRef.current !== (user?.id ?? null)) {
+      try {
+        const stored = window.localStorage.getItem(currentKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setItems(parsed);
+          } else {
+            setItems([]);
+          }
+        } else {
+          setItems([]);
+        }
+      } catch (e) {
+        console.error("CART_HYDRATION_ERROR", e);
+        setItems([]);
       }
-    } catch (e) {
-      setItems([]);
+      loadedForUserRef.current = user?.id ?? null;
     }
+
     setIsHydrated(true);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem("cart", JSON.stringify(items));
+    if (!isHydrated) return;
+    if (typeof window === "undefined") return;
+    try {
+      const currentKey = storageKeyFor(user?.id);
+      window.localStorage.setItem(currentKey, JSON.stringify(items));
+      console.log("CART_STORAGE", currentKey, items);
+    } catch (e) {
+      console.error("CART_PERSIST_ERROR", e);
     }
-  }, [items, isHydrated]);
+  }, [items, isHydrated, user?.id]);
 
   const addItem = (item: Omit<CartItem, "quantity">, quantity = 1) => {
+    console.log("ADD_TO_CART", item, quantity);
     setItems((prev) => {
       const existing = prev.find((i) => i.product_id === item.product_id);
       if (existing) {
@@ -88,7 +121,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, 0);
 
   return (
-    <CartContext.Provider value={{ items, addItem, removeItem, updateQuantity, clearCart, totalItems, totalAmount }}>
+    <CartContext.Provider
+      value={{
+        items,
+        addItem,
+        removeItem,
+        updateQuantity,
+        clearCart,
+        totalItems,
+        totalAmount,
+        mounted: isHydrated,
+      }}
+    >
       {children}
     </CartContext.Provider>
   );
@@ -105,6 +149,7 @@ export function useCart() {
       clearCart: () => {},
       totalItems: 0,
       totalAmount: 0,
+      mounted: false,
     };
   }
   return context;

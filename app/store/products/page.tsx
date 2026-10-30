@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/toast/Toast";
+import { useAuth } from "@/contexts/AuthContext";
 import ProductCard from "@/components/store/ProductCard";
 import { getStoreProducts, getStoreCategories } from "@/lib/data/store/client";
 
@@ -28,6 +29,7 @@ export default function StoreProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
   const { addToast } = useToast();
 
   const [filters, setFilters] = useState({
@@ -37,11 +39,12 @@ export default function StoreProductsPage() {
   });
 
   const fetchProducts = async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const [productsData, categoriesData] = await Promise.all([
-        getStoreProducts(filters),
-        getStoreCategories(),
+        getStoreProducts(user.id, filters),
+        getStoreCategories(user.id),
       ]);
       setProducts(productsData);
       setCategories(categoriesData);
@@ -54,8 +57,26 @@ export default function StoreProductsPage() {
   };
 
   useEffect(() => {
-    fetchProducts();
-  }, [filters]);
+    if (user) {
+      fetchProducts();
+    }
+  }, [filters, user]);
+
+  if (!user) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-dark mb-2">Products</h1>
+          <p className="text-muted">Browse our collection of revenue recovery solutions</p>
+        </div>
+        <Card padding="lg">
+          <div className="text-center py-12">
+            <p className="text-muted text-lg">Please log in to view products</p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -145,16 +145,20 @@ export async function createOrder(userId: string, data: {
   for (const item of data.items) {
     const { data: product } = await supabase
       .from("products")
-      .select("stock_quantity")
+      .select("id, stock_quantity")
       .eq("id", item.product_id)
-      .single();
+      .maybeSingle();
 
     if (product && typeof product.stock_quantity === 'number') {
-      const newStock = Math.max(0, product.stock_quantity - item.quantity);
-      await supabase
+      const newStock = Math.max(0, Number(product.stock_quantity) - item.quantity);
+      const { error: stockUpdateError } = await supabase
         .from("products")
         .update({ stock_quantity: newStock })
         .eq("id", item.product_id);
+
+      if (stockUpdateError) {
+        console.error("STOCK_DECREMENT_ERROR", stockUpdateError);
+      }
     }
   }
 

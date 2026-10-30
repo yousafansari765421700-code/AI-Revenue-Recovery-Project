@@ -1,22 +1,68 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { ShoppingBag, Package, Menu, X, User } from "lucide-react";
-import { useState } from "react";
+import { ShoppingBag, Package, Menu, X, User, Store as StoreIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useCart } from "@/contexts/CartContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { getMyStore } from "@/lib/data/stores/client";
+
+const ONBOARDING_PATH = "/store/onboarding";
+const HOMEPAGE_PATH = "/store";
+const ALLOWED_WHEN_NO_STORE = new Set([HOMEPAGE_PATH, ONBOARDING_PATH]);
 
 export default function StoreLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [storeName, setStoreName] = useState<string | null>(null);
+  const [gateResolved, setGateResolved] = useState(false);
   const { totalItems } = useCart();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) {
+      setGateResolved(true);
+      return;
+    }
+    if (pathname === ONBOARDING_PATH) {
+      setGateResolved(true);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const store = await getMyStore();
+        if (cancelled) return;
+        if (!store && !ALLOWED_WHEN_NO_STORE.has(pathname)) {
+          router.replace(ONBOARDING_PATH);
+          return;
+        }
+        setStoreName(store?.name || null);
+      } catch (err: any) {
+        if (cancelled) return;
+        console.error("STORE_LAYOUT_GATE_ERROR", err);
+        setStoreName(null);
+      } finally {
+        if (!cancelled) setGateResolved(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, pathname, router]);
+
+  const headerName = storeName || user?.user_metadata?.business_name || user?.user_metadata?.full_name || "My Store";
 
   const navigation = [
-    { name: "Store Home", href: "/store", icon: Package },
-    { name: "Products", href: "/store/products", icon: ShoppingBag },
-    { name: "Cart", href: "/store/cart", icon: ShoppingBag, badge: totalItems },
+    { name: "Store Home", href: "/store", icon: Package, show: !!storeName },
+    { name: "Products", href: "/store/products", icon: ShoppingBag, show: !!storeName },
+    { name: "Cart", href: "/store/cart", icon: ShoppingBag, badge: totalItems, show: !!storeName },
   ];
 
   return (
@@ -30,21 +76,9 @@ export default function StoreLayout({ children }: { children: React.ReactNode })
         <div className="flex flex-col h-full">
           <div className="flex items-center gap-2.5 h-16 px-6 border-b border-border">
             <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
-              <svg
-                className="w-5 h-5 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                />
-              </svg>
+              <StoreIcon className="w-5 h-5 text-white" />
             </div>
-            <span className="text-lg font-bold text-dark">Revenue Recovery</span>
+            <span className="text-lg font-bold text-dark truncate">{headerName}</span>
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden ml-auto p-1.5 rounded-lg hover:bg-gray-100"
@@ -54,7 +88,7 @@ export default function StoreLayout({ children }: { children: React.ReactNode })
           </div>
 
           <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-            {navigation.map((item) => {
+            {navigation.filter((i) => i.show).map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link
@@ -108,25 +142,27 @@ export default function StoreLayout({ children }: { children: React.ReactNode })
               <Menu className="w-5 h-5 text-muted" />
             </button>
             <div className="flex-1 lg:hidden">
-              <Link href="/store" className="text-lg font-bold text-dark">
-                Revenue Recovery Store
+              <Link href={storeName ? "/store/products" : "/store/onboarding"} className="text-lg font-bold text-dark truncate">
+                {headerName}
               </Link>
             </div>
             <div className="flex items-center gap-4">
-              <Link href="/store/cart">
-                <Button variant="ghost" size="sm" className="relative">
-                  <ShoppingBag className="w-5 h-5" />
-                  {totalItems > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                      {totalItems}
-                    </span>
-                  )}
-                </Button>
-              </Link>
+              {storeName && (
+                <Link href="/store/cart">
+                  <Button variant="ghost" size="sm" className="relative">
+                    <ShoppingBag className="w-5 h-5" />
+                    {totalItems > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-primary text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                        {totalItems}
+                      </span>
+                    )}
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
         </header>
-        <main className="p-6 lg:p-8">{children}</main>
+        <main className="p-6 lg:p-8">{gateResolved ? children : null}</main>
       </div>
     </div>
   );

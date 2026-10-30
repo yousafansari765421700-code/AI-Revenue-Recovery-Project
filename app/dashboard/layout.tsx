@@ -17,6 +17,7 @@ import {
   User,
   Package,
   ShoppingBag,
+  ClipboardList,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -32,6 +33,7 @@ const navigation = [
   { name: "Recovery", href: "/dashboard/recovery", icon: CreditCard },
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3 },
   { name: "Store", href: "/store", icon: ShoppingBag },
+  { name: "Orders", href: "/dashboard/orders", icon: ClipboardList },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

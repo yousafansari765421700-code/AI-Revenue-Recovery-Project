@@ -4,11 +4,12 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { format } from "date-fns";
-import { ShoppingCart, Package } from "lucide-react";
+import { ShoppingCart, Package, ImageOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { useToast } from "@/components/ui/toast/Toast";
 import type { Product } from "@/lib/data/products/client";
+import { getProductImage, getProductFallbackImage } from "@/lib/data/products/image";
 
 interface ProductCardProps {
   product: Product;
@@ -29,6 +30,7 @@ export default function ProductCard({ product }: ProductCardProps) {
   };
 
   const isOutOfStock = product.stock_quantity <= 0 || product.status === "out_of_stock";
+  const imageUrl = getProductImage(product);
 
   const handleAddToCart = () => {
     if (isOutOfStock) {
@@ -40,7 +42,7 @@ export default function ProductCard({ product }: ProductCardProps) {
       name: product.name,
       price: product.price,
       discount_price: product.discount_price,
-      image_url: product.image_url,
+      image_url: product.image_url ?? null,
       stock_quantity: product.stock_quantity,
     });
     addToast("success", `${product.name} added to cart`);
@@ -50,6 +52,17 @@ export default function ProductCard({ product }: ProductCardProps) {
     router.push(`/store/products/${product.id}`);
   };
 
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const target = e.target as HTMLImageElement;
+    const fallback = getProductFallbackImage(product);
+    if (target.src !== window.location.origin + fallback) {
+      target.src = fallback;
+    } else {
+      target.style.display = "none";
+      target.parentElement?.classList.add("fallback-shown");
+    }
+  };
+
   return (
     <Card hover padding="lg">
       <div className="space-y-4">
@@ -57,10 +70,18 @@ export default function ProductCard({ product }: ProductCardProps) {
           className="aspect-square rounded-xl bg-gray-50 flex items-center justify-center overflow-hidden cursor-pointer"
           onClick={handleViewDetails}
         >
-          {product.image_url ? (
-            <img src={product.image_url} alt={product.name} className="w-full h-full object-cover" />
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={product.name}
+              className="w-full h-full object-cover"
+              onError={handleImageError}
+            />
           ) : (
-            <Package className="w-12 h-12 text-muted" />
+            <div className="flex flex-col items-center gap-2 text-muted">
+              <ImageOff className="w-10 h-10" />
+              <span className="text-xs">No image</span>
+            </div>
           )}
         </div>
 

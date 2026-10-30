@@ -1,212 +1,257 @@
-"use client";
+import { createClient } from "@/lib/supabase/server";
+import { getOrders } from "@/lib/data/orders/server";
+import { format, subDays, startOfDay } from "date-fns";
+import OrdersClient from "@/components/dashboard/orders/OrdersClient";
 
-import { useState, useEffect } from "react";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Skeleton } from "@/components/ui/Skeleton";
-import { useToast } from "@/components/ui/toast/Toast";
-import { useAuth } from "@/contexts/AuthContext";
-import { getOrders, updateOrderStatus, deleteOrder } from "@/lib/data/orders/client";
-import type { Order } from "@/lib/data/orders/client";
-import { format } from "date-fns";
-import { Eye, Trash2 } from "lucide-react";
-import Link from "next/link";
+export const dynamic = "force-dynamic";
 
-function OrdersSkeleton() {
-  return (
-    <Card padding="lg">
-      <div className="space-y-4">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="flex items-center gap-4">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-4 w-32" />
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
+export interface OrderRow {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerEmail: string;
+  customerAvatar: string;
+  productCount: number;
+  total: number;
+  status: "pending" | "confirmed" | "processing" | "completed" | "cancelled";
+  createdAt: string;
 }
 
-export default function AdminOrdersPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
-  const { addToast } = useToast();
+export interface OrderStats {
+  total: number;
+  completed: number;
+  pending: number;
+  cancelled: number;
+}
 
-  const fetchOrders = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const data = await getOrders(user.id);
-      setOrders(data);
-    } catch (error) {
-      console.error("Failed to fetch orders:", error);
-      addToast("error", "Failed to load orders. Please try again.");
-    } finally {
-      setLoading(false);
+export interface OrderStatusCount {
+  status: string;
+  count: number;
+}
+
+export interface OrderChartPoint {
+  name: string;
+  orders: number;
+}
+
+export interface OrderActivity {
+  id: string;
+  action: string;
+  orderNumber: string;
+  time: string;
+  kind: "new" | "completed" | "cancelled" | "shipped" | "processing";
+}
+
+async function fetchProductCounts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  orderIds: string[]
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (orderIds.length === 0) return map;
+  const { data } = await supabase
+    .from("order_items")
+    .select("order_id")
+    .in("order_id", orderIds);
+  if (!data) return map;
+  for (const row of data as Array<{ order_id: string }>) {
+    map.set(row.order_id, (map.get(row.order_id) || 0) + 1);
+  }
+  return map;
+}
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+export default async function OrdersPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold text-dark">Orders</h1>
+        <p className="text-muted">Please sign in to view your orders.</p>
+      </div>
+    );
+  }
+
+  const rawOrders = await getOrders(user.id);
+  const productCounts = await fetchProductCounts(
+    supabase,
+    rawOrders.map((o) => o.id)
+  );
+
+  const orders: OrderRow[] = rawOrders.map((o) => ({
+    id: o.id,
+    orderNumber: o.order_number,
+    customerName: o.customer_name,
+    customerEmail: o.customer_email,
+    customerAvatar: initials(o.customer_name),
+    productCount: productCounts.get(o.id) ?? 0,
+    total: o.total_amount,
+    status: o.status,
+    createdAt: o.created_at,
+  }));
+
+  const stats: OrderStats = {
+    total: orders.length,
+    completed: orders.filter((o) => o.status === "completed").length,
+    pending: orders.filter((o) => o.status === "pending").length,
+    cancelled: orders.filter((o) => o.status === "cancelled").length,
+  };
+
+  const statusOrder = ["pending", "processing", "confirmed", "completed", "cancelled"];
+  const statusCounts: OrderStatusCount[] = statusOrder.map((s) => ({
+    status: s,
+    count: orders.filter((o) => o.status === s).length,
+  }));
+
+  const days = 7;
+  const chartData: OrderChartPoint[] = Array.from({ length: days }).map((_, idx) => {
+    const day = startOfDay(subDays(new Date(), days - 1 - idx));
+    const next = startOfDay(subDays(new Date(), days - 2 - idx));
+    const count = orders.filter((o) => {
+      const created = new Date(o.createdAt);
+      return created >= day && created < next;
+    }).length;
+    return { name: format(day, "EEE"), orders: count };
+  });
+
+  const recent = [...orders]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 6);
+
+  const activities: OrderActivity[] = recent.map((o) => {
+    const created = new Date(o.createdAt);
+    const diffMin = Math.max(1, Math.floor((Date.now() - created.getTime()) / 60000));
+    let time = `${diffMin} min ago`;
+    if (diffMin >= 60) {
+      const h = Math.floor(diffMin / 60);
+      time = `${h} hour${h > 1 ? "s" : ""} ago`;
     }
-  };
-
-  useEffect(() => {
-    fetchOrders();
-  }, [user]);
-
-  const handleUpdateStatus = async (orderId: string, status: string) => {
-    if (!user) return;
-    try {
-      await updateOrderStatus(user.id, orderId, status);
-      addToast("success", "Order status updated!");
-      fetchOrders();
-    } catch (error) {
-      console.error("Failed to update order:", error);
-      addToast("error", "Failed to update order status.");
+    if (diffMin >= 60 * 24) {
+      const d = Math.floor(diffMin / (60 * 24));
+      time = `${d} day${d > 1 ? "s" : ""} ago`;
     }
+    const kind: OrderActivity["kind"] =
+      o.status === "completed"
+        ? "completed"
+        : o.status === "cancelled"
+        ? "cancelled"
+        : o.status === "confirmed"
+        ? "shipped"
+        : o.status === "processing"
+        ? "processing"
+        : "new";
+    const actionLabel =
+      kind === "completed"
+        ? "Order completed"
+        : kind === "cancelled"
+        ? "Order cancelled"
+        : kind === "shipped"
+        ? "Order confirmed"
+        : kind === "processing"
+        ? "Order processing"
+        : "New order received";
+    return {
+      id: o.id,
+      action: actionLabel,
+      orderNumber: o.orderNumber,
+      time,
+      kind,
+    };
+  });
+
+  const highValuePending = orders
+    .filter((o) => o.status === "pending" && o.total > 0)
+    .sort((a, b) => b.total - a.total)[0];
+
+  const recentFailed = orders
+    .filter((o) => o.status === "cancelled")
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+
+  const alerts: Array<{
+    id: string;
+    priority: "high" | "medium" | "low";
+    title: string;
+    description: string;
+    impact: string;
+  }> = [];
+
+  if (highValuePending) {
+    alerts.push({
+      id: `pending-${highValuePending.id}`,
+      priority: "high",
+      title: "High-value order pending",
+      description: `Order ${highValuePending.orderNumber} ($${highValuePending.total.toFixed(2)}) is awaiting confirmation.`,
+      impact: `$${highValuePending.total.toFixed(2)} pending`,
+    });
+  }
+
+  if (recentFailed.length >= 3) {
+    const total = recentFailed.reduce((s, o) => s + o.total, 0);
+    alerts.push({
+      id: "cancelled-cluster",
+      priority: "medium",
+      title: "Multiple cancelled orders",
+      description: `${recentFailed.length} orders were cancelled recently.`,
+      impact: `$${total.toFixed(2)} cancelled`,
+    });
+  } else if (recentFailed.length > 0) {
+    alerts.push({
+      id: "cancelled-any",
+      priority: "low",
+      title: "Cancelled order detected",
+      description: `Order ${recentFailed[0].orderNumber} was cancelled.`,
+      impact: `$${recentFailed[0].total.toFixed(2)} cancelled`,
+    });
+  }
+
+  const uniqueCustomers = new Set(orders.map((o) => o.customerEmail.toLowerCase())).size;
+  const returningEmails = new Map<string, number>();
+  for (const o of orders) {
+    const k = o.customerEmail.toLowerCase();
+    returningEmails.set(k, (returningEmails.get(k) || 0) + 1);
+  }
+  const repeatBuyers = Array.from(returningEmails.values()).filter((n) => n > 1).length;
+  const firstTimeBuyers = Math.max(0, uniqueCustomers - repeatBuyers);
+  const totalRevenue = orders.reduce((s, o) => s + o.total, 0);
+  const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
+  const returningPct = uniqueCustomers > 0 ? Math.round((repeatBuyers / uniqueCustomers) * 100) : 0;
+  const firstTimePct = uniqueCustomers > 0 ? 100 - returningPct : 0;
+  const repeatPurchasePct =
+    orders.length > 0 ? Math.round((repeatBuyers / orders.length) * 100) : 0;
+
+  const customerInsights = {
+    returningPct,
+    firstTimePct,
+    avgOrderValue,
+    repeatPurchasePct,
+    hasData: orders.length > 0,
   };
 
-  const handleDeleteOrder = async (order: Order) => {
-    if (!user) return;
-    if (!confirm(`Are you sure you want to delete order ${order.order_number}?`)) return;
-    try {
-      await deleteOrder(user.id, order.id);
-      addToast("success", "Order deleted successfully!");
-      fetchOrders();
-    } catch (error) {
-      console.error("Failed to delete order:", error);
-      addToast("error", "Failed to delete order.");
-    }
+  const insights = {
+    hasData: orders.length > 0,
+    total: orders.length,
+    pendingValue: orders.filter((o) => o.status === "pending").reduce((s, o) => s + o.total, 0),
+    completedValue: orders.filter((o) => o.status === "completed").reduce((s, o) => s + o.total, 0),
   };
-
-  const statusVariant: Record<string, "success" | "warning" | "danger" | "neutral" | "primary"> = {
-    pending: "warning",
-    confirmed: "primary",
-    processing: "primary",
-    completed: "success",
-    cancelled: "danger",
-  };
-
-  const totalOrders = orders.length;
-  const pendingOrders = orders.filter((o) => o.status === "pending").length;
-  const completedOrders = orders.filter((o) => o.status === "completed").length;
-  const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total_amount), 0);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-dark mb-2">Orders</h1>
-        <p className="text-muted">Manage customer orders</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card hover padding="md">
-          <div className="flex items-start justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-primary-light flex items-center justify-center text-primary">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
-            </div>
-            <span className="text-sm font-medium text-muted">Total</span>
-          </div>
-          <p className="text-2xl font-bold text-dark">{totalOrders}</p>
-          <p className="text-sm text-muted">Total Orders</p>
-        </Card>
-        <Card hover padding="md">
-          <div className="flex items-start justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-warning-light flex items-center justify-center text-warning">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            </div>
-            <span className="text-sm font-medium text-muted">Pending</span>
-          </div>
-          <p className="text-2xl font-bold text-dark">{pendingOrders}</p>
-          <p className="text-sm text-muted">Pending Orders</p>
-        </Card>
-        <Card hover padding="md">
-          <div className="flex items-start justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-success-light flex items-center justify-center text-success">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-            </div>
-            <span className="text-sm font-medium text-muted">Done</span>
-          </div>
-          <p className="text-2xl font-bold text-dark">{completedOrders}</p>
-          <p className="text-sm text-muted">Completed Orders</p>
-        </Card>
-        <Card hover padding="md">
-          <div className="flex items-start justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-accent-light flex items-center justify-center text-accent">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            </div>
-            <span className="text-sm font-medium text-muted">Revenue</span>
-          </div>
-          <p className="text-2xl font-bold text-dark">${totalRevenue.toFixed(2)}</p>
-          <p className="text-sm text-muted">Total Store Revenue</p>
-        </Card>
-      </div>
-
-      {loading ? (
-        <OrdersSkeleton />
-      ) : orders.length === 0 ? (
-        <Card padding="lg">
-          <div className="text-center py-12">
-            <p className="text-muted text-lg">No orders yet</p>
-            <p className="text-muted text-sm mt-2">Orders will appear here when customers place them</p>
-          </div>
-        </Card>
-      ) : (
-        <Card padding="lg">
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <div className="inline-block min-w-full align-middle">
-              <table className="min-w-full divide-y divide-border">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Order</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Customer</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Total</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {orders.map((order) => (
-                    <tr key={order.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-4 py-4 text-sm font-medium text-dark">{order.order_number}</td>
-                      <td className="px-4 py-4 text-sm text-muted">{order.customer_name}</td>
-                      <td className="px-4 py-4 text-sm font-medium text-dark">${order.total_amount.toFixed(2)}</td>
-                      <td className="px-4 py-4">
-                        <select
-                          value={order.status}
-                          onChange={(e) => handleUpdateStatus(order.id, e.target.value)}
-                          className="text-sm rounded-lg border border-border bg-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="confirmed">Confirmed</option>
-                          <option value="processing">Processing</option>
-                          <option value="completed">Completed</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-muted">
-                        {format(new Date(order.created_at), "MMM d, yyyy")}
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <Link href={`/dashboard/orders/${order.id}`}>
-                            <Button variant="ghost" size="sm"><Eye className="w-4 h-4" /></Button>
-                          </Link>
-                          <Button variant="ghost" size="sm" onClick={() => handleDeleteOrder(order)}>
-                            <Trash2 className="w-4 h-4 text-danger" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </Card>
-      )}
-    </div>
+    <OrdersClient
+      orders={orders}
+      stats={stats}
+      statusCounts={statusCounts}
+      chartData={chartData}
+      activities={activities}
+      alerts={alerts}
+      customerInsights={customerInsights}
+      insights={insights}
+    />
   );
 }
